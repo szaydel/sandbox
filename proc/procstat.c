@@ -32,18 +32,30 @@ static inline int time_since_boot(void) {
 static inline times_t parse_times(char *buf) {
   #define UTIME_IDX 13
   #define STIME_IDX 14
+  #define CUTIME_IDX 15
+  #define CSTIME_IDX 16
   #define STARTTIME_IDX 21
 
-  times_t t = {};
+  times_t t = {
+      .user = 0,
+      .sys = 0,
+      .start = 0,
+  };
   char *tok;
 
   for (size_t i = 0 ; (tok = strsep(&buf, " ")) != NULL ; i++) {
-      if (i == UTIME_IDX) {
-        t.user = strtoul(tok, NULL, 10);
-      } else if (i == STIME_IDX) {
-        t.sys = strtoul(tok, NULL, 10);
-      } else if (i == STARTTIME_IDX) {
+      switch (i) {
+      case UTIME_IDX:
+      case CUTIME_IDX:
+        t.user += strtoul(tok, NULL, 10);
+        break;
+      case CSTIME_IDX:
+      case STIME_IDX:
+        t.sys += strtoul(tok, NULL, 10);
+        break;
+      case STARTTIME_IDX:
         t.start = strtoul(tok, NULL, 10);
+        break;
       }
   }
   return t;
@@ -55,21 +67,27 @@ static inline u_num process_age(u_num start_time) {
   return age_ticks;
 }
 
-// lifetime_avg_load returns effectively a ratio of CPU times over
+// lifetime_cpu_ticks_per_tick returns effectively a ratio of CPU times over
 // age of the process, i.e. an average load over process' lifetime.
-static inline double lifetime_avg_load(times_t t) {
+static inline double lifetime_cpu_ticks_per_tick(times_t t) {
   double total_cpu_ticks = (double)(t.user + t.sys);
   return total_cpu_ticks / (double)process_age(t.start);
 }
 
-// load_diff returns a relative difference between two samples.
-// This difference should not be greater than 1 assuming a single core.
-static inline double load_diff(times_t first, times_t second) {
+// cpu_ticks_per_tick returns a ratio of CPU time over walltime measured
+// between two samples.
+// Seconds per second should not be > 1.0, where 1.0 means process spent
+// 100% of measured sample interval consuming CPU.
+static inline double cpu_ticks_per_tick(times_t first, times_t second) {
   double cpu_times[2], times[2];
   cpu_times[0] = first.user + first.sys;
   cpu_times[1] = second.user + second.sys;
-  times[0] = first.ts.tv_sec + ((double)(first.ts.tv_sec) / 1e9);
-  times[1] = second.ts.tv_sec + ((double)(second.ts.tv_sec) / 1e9);
+  times[0] = first.ts.tv_sec + ((double)first.ts.tv_nsec / 1e9);
+  times[1] = second.ts.tv_sec + ((double)second.ts.tv_nsec / 1e9);
+  #ifdef DEBUG
+  printf("cpu_times[0] = %f cpu_times[1] = %f\n", cpu_times[0], cpu_times[1]);
+  printf("times[0] = %f times[1] = %f\n", times[0], times[1]);
+  #endif
   return (cpu_times[1] - cpu_times[0]) /
         ((times[1] - times[0]) * sysconf(_SC_CLK_TCK));
 }
@@ -78,6 +96,10 @@ static inline double load_diff(times_t first, times_t second) {
 static inline char *read_stat(char *buf, size_t len, pid_t pid) {
     FILE *input = NULL;
     char *path = malloc(sizeof(char) * 1024);
+    if (!path) {
+      perror("malloc(...)");
+      return NULL;
+    }
     asprintf(&path, "/proc/%d/stat", pid);
     input = fopen(path, "r");
     if(!input) {
@@ -89,6 +111,7 @@ static inline char *read_stat(char *buf, size_t len, pid_t pid) {
   fread(buf, len, 1, input);
   if (ferror(input)) {
     strerror(errno);
+    fclose(input);
     return NULL;
   }
   fclose(input);
@@ -102,7 +125,16 @@ static inline char *read_stat(char *buf, size_t len, pid_t pid) {
 static inline times_t *collect_times(size_t n, pid_t pid) {
   size_t bufsz = 1024;
   char *buf = malloc(sizeof(char) * bufsz);
+  if (!buf) {
+    perror("malloc(...)");
+    return NULL;
+  }
   times_t *tt = malloc(n * sizeof(times_t));
+  if (!tt) {
+    perror("malloc(...)");
+    free(buf);
+    return NULL;
+  }
   for (size_t i = 0 ; i < n ; i++) {
     if (read_stat(buf, bufsz, pid) == NULL) {
       free(tt);
@@ -131,7 +163,7 @@ static inline times_t *collect_times(size_t n, pid_t pid) {
 static inline double avg_times(times_t *tt, size_t n) {
     double total = 0;
     for (size_t i = 0; i < n-1; i++) {
-        total += load_diff(tt[i], tt[i+1]);
+        total += cpu_ticks_per_tick(tt[i], tt[i+1]);
     }
     return total / n;
 }
@@ -171,8 +203,8 @@ int main(int argc, char *argv[]) {
   if (points) {
     printf("%f %f %f\n",
         avg_times(points, intervals),
-        load_diff(points[0], points[intervals-1]),
-        lifetime_avg_load(points[intervals-1])
+        cpu_ticks_per_tick(points[0], points[intervals-1]),
+        lifetime_cpu_ticks_per_tick(points[intervals-1])
     );
   // pointless to free(points) here
   } else {
