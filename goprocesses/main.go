@@ -209,6 +209,8 @@ func findProcsByName(name string) []*ProcInfo {
 // computed over the entire lifetime of process; least volatile.
 // CurrentRate - derivative between two interval samples; most volatile.
 type IntervalReport struct {
+	PID int
+	Role string
 	Timestamp    time.Time
 	WindowRate   float64
 	LifetimeRate float64
@@ -313,6 +315,8 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 			if counter >= 10 {
 				// fmt.Printf("DELTA: %f | Avg: %f Latest: %f\n", times.Delta(), avg(samples), lifetimeRate)
 				r <- &IntervalReport{
+					PID: watching.PID,
+					Role: watching.Role,
 					Timestamp: time.Now(),
 					WindowRate: avg(samples),
 					LifetimeRate: lifetimeRate,
