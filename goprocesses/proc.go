@@ -58,13 +58,13 @@ func findProcsByName(name string) []*ProcInfo {
 	handleErr(err, true)
 	var piSlc = make([]*ProcInfo, 0)
 	for _, procfile := range paths {
-		// fmt.Printf("procfile: %s\n", procfile)
 		pSlc := strings.Split(procfile, "/")
 		// FIXME: Check length of slice
 		pid, err := strconv.Atoi(pSlc[len(pSlc)-1])
 		handleErr(err, true)
-		args := cmdLineArgs(pid)
-		if args.ProgramName() == name {
+		if isTargetProcess(pid, name) {
+			//args := cmdLineArgs(pid)
+			// if args.ProgramName() == name {
 			// If buildProcInfo returns nil, a process is likely no longer valid
 			// and instead of adding it to this slice, we skip it.
 			// This check runs periodically and if the process that just went

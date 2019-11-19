@@ -80,6 +80,8 @@ type ProcInfo struct {
 	S           *ProcStat     `json:"process_stats"`
 }
 
+// OnCPUTimeTotal returns total amount of time process and its children spent
+// on CPU.
 func (ps ProcStat) OnCPUTimeTotal() int64 {
 	return int64(ps.STime + ps.UTime + ps.CSTime + ps.CUTime)
 }

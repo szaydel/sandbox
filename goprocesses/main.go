@@ -1,7 +1,9 @@
 package main
 
 import (
-	"time"
+	"context"
+	"os"
+	"os/signal"
 )
 
 // type Count int
@@ -23,14 +25,29 @@ import (
 // }
 
 func main() {
-	// processes := findProcsByName("bro")
-	// j, _ := json.Marshal(processes)
-	// fmt.Printf("%v\n", string(j))
+	// trap Ctrl+C and call cancel on the context
+	ctx, cancel := context.WithCancel(context.Background())
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	defer func() {
+		signal.Stop(sigChan)
+		cancel()
+	}()
+	go func() {
+		select {
+		case <-sigChan:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 
-	shutdownChan := make(chan struct{})
 	intervalReportChan := make(chan *IntervalReport)
-	go startMonitors(shutdownChan, intervalReportChan)
+	go startMonitors(
+		ctx,
+		intervalReportChan,
+		func() []*ProcInfo {
+			return findProcsByName("/workspace/sandbox/bin/bro")
+		})
 	go startIntervalReport(intervalReportChan)
-	time.Sleep(100 * time.Second)
-	shutdownChan <- struct{}{}
+	<-ctx.Done()
 }

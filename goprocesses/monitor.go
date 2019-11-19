@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"os"
 	"time"
 )
 
@@ -20,30 +22,55 @@ import (
 // As a side-effect of these periodic checks, if we detect at some point a
 // process that is not already in the map, we begin to track this process and
 // create a new monitor goroutine for it.
-func startMonitors(stopChan chan struct{}, repChan chan *IntervalReport) {
-	var processMap = make(map[string]int)
+func startMonitors(
+	ctx context.Context,
+	repChan chan *IntervalReport,
+	processes func() []*ProcInfo) {
+	// var processMap = make(map[string]int)
+	var processMap = struct {
+		t map[string]struct{}
+		current map[string]int
+	}{}
+	processMap.current = make(map[string]int)
+	// processMap.t = make(map[string]int)
 	var channelsMap = make(map[string]chan *ProcInfo)
-	// var ivReportChan = make(chan *IntervalReport)
 	for {
-		processes := findProcsByName("bro")
-		for _, p := range processes {
-			if v, ok := processMap[p.Role]; ok {
-				if v != p.PID { // This process' PID changed
-					fmt.Println("PID changed, take action, save pid")
-					processMap[p.Role] = p.PID
+		select {
+		case <-ctx.Done():
+			return
+			// shutdown all monitor processes
+		default:
+			processMap.t = make(map[string]struct{})
+			for _, p := range processes() {
+				processMap.t[p.Role] = struct{}{}
+				if v, ok := processMap.current[p.Role]; ok {
+					if v != p.PID { // This process' PID changed
+						fmt.Println("PID changed, take action, save pid")
+						processMap.current[p.Role] = p.PID
+						channelsMap[p.Role] <- p
+					}
+				} else { // This process' Role is not already in the map
+					processMap.current[p.Role] = p.PID
+					channelsMap[p.Role] = make(chan *ProcInfo)
+					go monitor(channelsMap[p.Role], repChan)
 					channelsMap[p.Role] <- p
+					fmt.Printf("Added %s => %d to map\n", p.Role, p.PID)
 				}
-			} else { // This process' Role is not already in the map
-				processMap[p.Role] = p.PID
-				channelsMap[p.Role] = make(chan *ProcInfo)
-				go monitor(channelsMap[p.Role], repChan)
-				channelsMap[p.Role] <- p
-				fmt.Printf("Added %s => %d to map\n", p.Role, p.PID)
 			}
+			fmt.Printf("t: %v | curr: %v\n",
+			processMap.t, processMap.current)
+			for role := range processMap.current {
+				if _, ok := processMap.t[role]; !ok {
+					// We need to notify corresponding goroutine that it needs 
+					// to shutdown! After telling relevant goroutine to stop, 
+					// remove the no longer existing role from the current map.
+					delete(processMap.current, role)
+				}
+			}
+			// It may take this much time to detect that a process got restarted
+			// or that a new process was added to system.
+			time.Sleep(4 * time.Second)
 		}
-		// It may take this much time to detect that a process got restarted
-		// or that a new process was added to system.
-		time.Sleep(4 * time.Second)
 	}
 }
 
@@ -54,13 +81,16 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 	var counter uint64
 	var times CPUTimes
 	var lifetimeRate float64
+	var osPageSize = os.Getpagesize()
 	for {
 		select {
 		case v := <-p:
 			watching = v
 			fmt.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
 		default:
-			if s, ok := watching.Stat(); ok {
+			var s ProcStat
+			var ok bool
+			if s, ok = watching.Stat(); ok {
 				lifetimeRate = float64(s.OnCPUTimeTotal()) / float64(watching.ProcAgeAsTicks())
 				samples[counter%window] = lifetimeRate
 
@@ -85,20 +115,23 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 					times.CurrentRunTime = watching.ProcAgeAsTicks()
 				}
 			} else {
-				samples[counter%10] = math.NaN()
+				samples[counter%window] = math.NaN()
 				times.Reset()
 			}
 			counter++
 			// fmt.Printf("counter: %d | %+v\n", counter, samples)
-			if counter >= 10 {
+			if counter >= window {
 				// fmt.Printf("DELTA: %f | Avg: %f Latest: %f\n", times.Delta(), avg(samples), lifetimeRate)
 				r <- &IntervalReport{
-					PID:          watching.PID,
-					Role:         watching.Role,
-					Timestamp:    time.Now(),
-					WindowRate:   avg(samples),
-					LifetimeRate: lifetimeRate,
-					CurrentRate:  times.Delta(),
+					PID:             watching.PID,
+					Role:            watching.Role,
+					Timestamp:       time.Now(),
+					WindowRate:      avg(samples),
+					StandardDev:     stddev(samples),
+					LifetimeRate:    lifetimeRate,
+					CurrentRate:     times.Delta(),
+					VirtMemoryBytes: s.VSize,
+					RSSBytes:        s.RSS * osPageSize,
 				}
 				// fmt.Printf("counter: %d | avg: %f\n", counter, avg(samples))
 			}

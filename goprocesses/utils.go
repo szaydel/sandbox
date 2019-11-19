@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 func handleErr(e error, doPanic bool) {
@@ -22,4 +23,24 @@ func nullByteToSpace(b []byte) []byte {
 		}
 	}
 	return b
+}
+
+// isTargetProcess returns true if given pid is referring to executable
+// identified by target, otherwise it returns false.
+func isTargetProcess(pid int, target string) bool {
+	var fileInfo os.FileInfo
+	var exe, lnk string
+	var err error
+
+	lnk = fmt.Sprintf("/proc/%d/exe", pid)
+	if fileInfo, err = os.Lstat(lnk); err != nil {
+		return false
+	}
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		exe, err = os.Readlink(lnk)
+		if err != nil {
+			return false
+		}
+	}
+	return strings.Compare(target, exe) == 0
 }

@@ -9,16 +9,20 @@ import (
 // figures, WindowRate, LifeTimeRate and CurrentRate.
 // WindowRate - an average of samples over several intervals, which effectively
 // makes the data smoother.
+// StandardDev - standard deviation for samples in this window.
 // LifeTimeRate - rate of time spent on CPU over total process' runtime,
 // computed over the entire lifetime of process; least volatile.
 // CurrentRate - derivative between two interval samples; most volatile.
 type IntervalReport struct {
-	PID          int
-	Role         string
-	Timestamp    time.Time
-	WindowRate   float64
-	LifetimeRate float64
-	CurrentRate  float64
+	PID             int
+	Role            string
+	Timestamp       time.Time
+	WindowRate      float64
+	StandardDev     float64
+	LifetimeRate    float64
+	CurrentRate     float64
+	VirtMemoryBytes uint
+	RSSBytes        int
 }
 
 func startIntervalReport(c <-chan *IntervalReport) {
