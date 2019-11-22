@@ -7,7 +7,15 @@ import (
 	"os"
 	"time"
 )
+// MaxNotSeenIntervals is the number of times we allow for a process to not be 
+// seen in the process table before removing its traces and stopping associated
+// goroutine.
+const MaxNotSeenIntervals = 2
 
+// ProcRefreshInterval is the amount of time between rescans of the process 
+// table. This is the upper limit to amount of time it can take to detect 
+// changes with the processes of interest.
+const ProcRefreshInterval = 4 * time.Second
 // startMonitors periodically scans the process table by reading through /proc
 // and picks out only those processes that we are interested in. These processes
 // are then added to a map of process roles to PIDs, where a role is something
@@ -26,20 +34,30 @@ func startMonitors(
 	ctx context.Context,
 	repChan chan *IntervalReport,
 	processes func() []*ProcInfo) {
-	// var processMap = make(map[string]int)
 	var processMap = struct {
 		t map[string]struct{}
 		current map[string]int
-	}{}
-	processMap.current = make(map[string]int)
-	// processMap.t = make(map[string]int)
-	var channelsMap = make(map[string]chan *ProcInfo)
+		notSeen map[string]int
+	}{
+		current: make(map[string]int),
+		notSeen: make(map[string]int),
+	}
+	// channels is used for communication with goroutines which we start here
+	// for every process of interest.
+	var channels = struct {
+		pi map[string]chan *ProcInfo
+	}{
+		pi: make(map[string]chan *ProcInfo),
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 			// shutdown all monitor processes
 		default:
+			// We want to create this map each time through this loop. This map
+			// is expected to be transient and its contents are only good for a
+			// single iteration of this loop.
 			processMap.t = make(map[string]struct{})
 			for _, p := range processes() {
 				processMap.t[p.Role] = struct{}{}
@@ -47,29 +65,44 @@ func startMonitors(
 					if v != p.PID { // This process' PID changed
 						fmt.Println("PID changed, take action, save pid")
 						processMap.current[p.Role] = p.PID
-						channelsMap[p.Role] <- p
+						channels.pi[p.Role] <- p
 					}
 				} else { // This process' Role is not already in the map
 					processMap.current[p.Role] = p.PID
-					channelsMap[p.Role] = make(chan *ProcInfo)
-					go monitor(channelsMap[p.Role], repChan)
-					channelsMap[p.Role] <- p
+					processMap.notSeen[p.Role] = 0
+					// Create channels if this is a new process which we have
+					// never seen before and do not already have its role in 
+					// the processMap.current map. If this is a new process ID 
+					// for a previously seen role, we will already have these,
+					// and instead we just update the process ID above.
+					channels.pi[p.Role] = make(chan *ProcInfo)
+					go monitor(channels.pi[p.Role], 
+						repChan)
+					channels.pi[p.Role] <- p
 					fmt.Printf("Added %s => %d to map\n", p.Role, p.PID)
 				}
 			}
-			fmt.Printf("t: %v | curr: %v\n",
-			processMap.t, processMap.current)
 			for role := range processMap.current {
 				if _, ok := processMap.t[role]; !ok {
+					if processMap.notSeen[role] < MaxNotSeenIntervals {
+						processMap.notSeen[role]++
+						continue
+					}
 					// We need to notify corresponding goroutine that it needs 
 					// to shutdown! After telling relevant goroutine to stop, 
 					// remove the no longer existing role from the current map.
 					delete(processMap.current, role)
+					// this signals associated goroutine to stop and return, 
+					// otherwise we are going to have leaking goroutines.
+					close(channels.pi[role])
+					channels.pi[role] = nil
+					delete(channels.pi, role)
+					delete(processMap.notSeen, role)
 				}
 			}
 			// It may take this much time to detect that a process got restarted
 			// or that a new process was added to system.
-			time.Sleep(4 * time.Second)
+			time.Sleep(ProcRefreshInterval)
 		}
 	}
 }
@@ -86,7 +119,14 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 		select {
 		case v := <-p:
 			watching = v
+			if watching != nil {
 			fmt.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
+			} else {
+				// This goroutine is expected to go away now because the 
+				// monitored process was removed by system from process table.
+				return
+			}
+
 		default:
 			var s ProcStat
 			var ok bool
