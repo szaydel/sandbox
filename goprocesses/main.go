@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"net/http"
+	"log"
+	"fmt"
 )
 
 // type Count int
@@ -49,5 +52,19 @@ func main() {
 			return findProcsByName("/workspace/sandbox/bin/bro")
 		})
 	go startIntervalReport(intervalReportChan)
+
+
+	port := 8080
+	http.HandleFunc("/info", handler)
+
+	log.Printf("Server starting on port %v\n", port)
+	go http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
+	
 	<-ctx.Done()
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	data, err := intervalReportMap.ToJSON()
+	handleErr(err, true)
+	fmt.Fprint(w, string(data))
 }
