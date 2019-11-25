@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
-	"net/http"
-	"log"
-	"fmt"
+	"strings"
 )
+
+const Port = 8080
 
 // type Count int
 // type Role string
@@ -53,18 +56,46 @@ func main() {
 		})
 	go startIntervalReport(intervalReportChan)
 
+	http.HandleFunc("/info", allInfoHandler)
+	http.HandleFunc("/info/", roleInfoHandler) // children of /info route
 
-	port := 8080
-	http.HandleFunc("/info", handler)
+	log.Printf("Server starting on port %v\n", Port)
+	go http.ListenAndServe(fmt.Sprintf(":%v", Port), nil)
 
-	log.Printf("Server starting on port %v\n", port)
-	go http.ListenAndServe(fmt.Sprintf(":%v", port), nil)
-	
 	<-ctx.Done()
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	data, err := intervalReportMap.ToJSON()
-	handleErr(err, true)
+func allInfoHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := metricsReport.ToJSON()
+	if err != nil {
+		handleErr(err, false)
+		http.Error(w,
+			http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError,
+		)
+		return
+	}
+	fmt.Fprint(w, string(data))
+}
+
+func roleInfoHandler(w http.ResponseWriter, r *http.Request) {
+	role := strings.TrimPrefix(r.URL.Path, "/info/")
+	//fmt.Printf("URL.Path: %+v\n", role)
+	//fmt.Printf("URL.RequestURI(): %+v\n", r.URL.RequestURI())
+	data, err := metricsReport.RoleToJSON(role)
+	if err != nil {
+		handleErr(
+			fmt.Errorf(
+				"failed getting metrics for %s with: %s", role, err),
+			false,
+		)
+		if err == errNoInfoForRole {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w,
+				http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError,
+			)
+		}
+		return
+	}
 	fmt.Fprint(w, string(data))
 }

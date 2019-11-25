@@ -7,15 +7,17 @@ import (
 	"os"
 	"time"
 )
-// MaxNotSeenIntervals is the number of times we allow for a process to not be 
+
+// MaxNotSeenIntervals is the number of times we allow for a process to not be
 // seen in the process table before removing its traces and stopping associated
 // goroutine.
 const MaxNotSeenIntervals = 2
 
-// ProcRefreshInterval is the amount of time between rescans of the process 
-// table. This is the upper limit to amount of time it can take to detect 
+// ProcRefreshInterval is the amount of time between rescans of the process
+// table. This is the upper limit to amount of time it can take to detect
 // changes with the processes of interest.
 const ProcRefreshInterval = 4 * time.Second
+
 // startMonitors periodically scans the process table by reading through /proc
 // and picks out only those processes that we are interested in. These processes
 // are then added to a map of process roles to PIDs, where a role is something
@@ -35,7 +37,7 @@ func startMonitors(
 	repChan chan *IntervalReport,
 	processes func() []*ProcInfo) {
 	var processMap = struct {
-		t map[string]struct{}
+		t       map[string]struct{}
 		current map[string]int
 		notSeen map[string]int
 	}{
@@ -65,18 +67,19 @@ func startMonitors(
 					if v != p.PID { // This process' PID changed
 						fmt.Println("PID changed, take action, save pid")
 						processMap.current[p.Role] = p.PID
+						p.PIDChaged = true
 						channels.pi[p.Role] <- p
 					}
 				} else { // This process' Role is not already in the map
 					processMap.current[p.Role] = p.PID
 					processMap.notSeen[p.Role] = 0
 					// Create channels if this is a new process which we have
-					// never seen before and do not already have its role in 
-					// the processMap.current map. If this is a new process ID 
+					// never seen before and do not already have its role in
+					// the processMap.current map. If this is a new process ID
 					// for a previously seen role, we will already have these,
 					// and instead we just update the process ID above.
 					channels.pi[p.Role] = make(chan *ProcInfo)
-					go monitor(channels.pi[p.Role], 
+					go monitor(channels.pi[p.Role],
 						repChan)
 					channels.pi[p.Role] <- p
 					fmt.Printf("Added %s => %d to map\n", p.Role, p.PID)
@@ -88,11 +91,11 @@ func startMonitors(
 						processMap.notSeen[role]++
 						continue
 					}
-					// We need to notify corresponding goroutine that it needs 
-					// to shutdown! After telling relevant goroutine to stop, 
+					// We need to notify corresponding goroutine that it needs
+					// to shutdown! After telling relevant goroutine to stop,
 					// remove the no longer existing role from the current map.
 					delete(processMap.current, role)
-					// this signals associated goroutine to stop and return, 
+					// this signals associated goroutine to stop and return,
 					// otherwise we are going to have leaking goroutines.
 					close(channels.pi[role])
 					channels.pi[role] = nil
@@ -109,20 +112,26 @@ func startMonitors(
 
 func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 	const window = 10
-	var watching *ProcInfo
-	var samples = make([]float64, window)
 	var counter uint64
-	var times CPUTimes
+	var initTimestamp = time.Now()
 	var lifetimeRate float64
 	var osPageSize = os.Getpagesize()
+	var newPIDCounter uint64
+	var samples = make([]float64, window)
+	var times CPUTimes
+	var watching *ProcInfo
+
 	for {
 		select {
 		case v := <-p:
 			watching = v
 			if watching != nil {
-			fmt.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
+				fmt.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
+				if counter > 0 && watching.PIDChaged {
+					newPIDCounter++
+				}
 			} else {
-				// This goroutine is expected to go away now because the 
+				// This goroutine is expected to go away now because the
 				// monitored process was removed by system from process table.
 				return
 			}
@@ -165,19 +174,20 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 				r <- &IntervalReport{
 					PID:             watching.PID,
 					Role:            watching.Role,
+					InitTimestamp:   initTimestamp,
 					Timestamp:       time.Now(),
 					WindowRate:      avg(samples),
 					StandardDev:     stddev(samples),
 					LifetimeRate:    lifetimeRate,
 					CurrentRate:     times.Delta(),
+					TimesRestated:   newPIDCounter,
 					VirtMemoryBytes: s.VSize,
 					RSSBytes:        s.RSS * osPageSize,
 				}
 				// fmt.Printf("counter: %d | avg: %f\n", counter, avg(samples))
 			}
 
-			// times.Delta()
-			time.Sleep(1 * time.Second)
+			<-time.NewTimer(time.Second).C
 		}
 	}
 }

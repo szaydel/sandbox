@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 )
@@ -12,6 +13,7 @@ func handleErr(e error, doPanic bool) {
 		if doPanic {
 			panic(e)
 		}
+		log.SetOutput(os.Stderr)
 		fmt.Fprintf(os.Stderr, "Error: %v\n", e)
 	}
 }
