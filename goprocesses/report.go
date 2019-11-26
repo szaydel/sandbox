@@ -16,17 +16,18 @@ import (
 // computed over the entire lifetime of process; least volatile.
 // CurrentRate - derivative between two interval samples; most volatile.
 type IntervalReport struct {
-	PID             int       `json:"pid"`
-	Role            string    `json:"role"`
-	InitTimestamp   time.Time `json:"init_timestamp"`
-	Timestamp       time.Time `json:"timestamp"`
-	WindowRate      float64   `json:"window_rate"`
-	StandardDev     float64   `json:"standard_dev"`
-	LifetimeRate    float64   `json:"lifetime_rate"`
-	CurrentRate     float64   `json:"current_rate"`
-	TimesRestated   uint64    `json:"times_restarted"`
-	VirtMemoryBytes uint      `json:"virtual_memory_bytes"`
-	RSSBytes        int       `json:"rss_bytes"`
+	PID             int              `json:"pid"`
+	Role            string           `json:"role"`
+	InitTimestamp   time.Time        `json:"init_timestamp"`
+	Timestamp       time.Time        `json:"timestamp"`
+	WindowRate      float64          `json:"window_rate"`
+	StandardDev     float64          `json:"standard_dev"`
+	LifetimeRate    float64          `json:"lifetime_rate"`
+	CurrentRate     float64          `json:"current_rate"`
+	TimesRestated   uint64           `json:"times_restarted"`
+	VirtMemoryBytes uint             `json:"virtual_memory_bytes"`
+	RSSBytes        int              `json:"rss_bytes"`
+	RateHistogram   map[string]int64 `json:"rate_histogram"`
 }
 
 func startIntervalReport(c <-chan *IntervalReport) {
@@ -90,6 +91,7 @@ func (s *Summaries) safeIntervalReport(role string) *IntervalReport {
 		StandardDev:     rep.StandardDev,
 		LifetimeRate:    rep.LifetimeRate,
 		CurrentRate:     rep.CurrentRate,
+		RateHistogram:   rep.RateHistogram,
 		TimesRestated:   rep.TimesRestated,
 		VirtMemoryBytes: rep.VirtMemoryBytes,
 		RSSBytes:        rep.RSSBytes,

@@ -113,6 +113,7 @@ func startMonitors(
 func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 	const window = 10
 	var counter uint64
+	var histogram = NewHist()
 	var initTimestamp = time.Now()
 	var lifetimeRate float64
 	var osPageSize = os.Getpagesize()
@@ -162,6 +163,7 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 				} else {
 					times.CurrentOnCPUTime = s.OnCPUTimeTotal()
 					times.CurrentRunTime = watching.ProcAgeAsTicks()
+					histogram.Insert(times.Delta())
 				}
 			} else {
 				samples[counter%window] = math.NaN()
@@ -180,6 +182,7 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 					StandardDev:     stddev(samples),
 					LifetimeRate:    lifetimeRate,
 					CurrentRate:     times.Delta(),
+					RateHistogram:   histogram.JSONSafeMap(),
 					TimesRestated:   newPIDCounter,
 					VirtMemoryBytes: s.VSize,
 					RSSBytes:        s.RSS * osPageSize,

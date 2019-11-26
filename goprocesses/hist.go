@@ -29,6 +29,8 @@ func NewHist() *Histogram {
 
 }
 
+// Insert is the primary method of the histogram used to insert new observations
+// into the histogram.
 func (h *Histogram) Insert(n float64) {
 	slot := sort.SearchFloat64s(h.slots, n)
 	for i := len(h.slots) - 1; i >= slot; i-- {
@@ -36,6 +38,7 @@ func (h *Histogram) Insert(n float64) {
 	}
 }
 
+// Map returns contents of a histogram as float64->int64 map.
 func (h *Histogram) Map() map[float64]int64 {
 	return map[float64]int64{
 		0.0001:       h.counts[0],
@@ -49,24 +52,19 @@ func (h *Histogram) Map() map[float64]int64 {
 	}
 }
 
-// func main() {
-// 	h := NewHist()
-// 	for _, n := range [...]float64{
-// 		0.,
-// 		0.0005,
-// 		0.001,
-// 		0.01,
-// 		0.1,
-// 		0.11,
-// 		0.12,
-// 		0.199,
-// 		0.2,
-// 		1.0002,
-// 		2.0,
-// 		0.45,
-// 	} {
-// 		h.Insert(n)
-// 	}
-// 	fmt.Printf("%v\n", h)
-
-// }
+// JSONSafeMap returns contents of a histogram as string->int64 map.
+// It is a representation of the histogram where keys are string values
+// instead of floating point values, in order to properly serialize to JSON
+// without creating a custom encoder.
+func (h *Histogram) JSONSafeMap() map[string]int64 {
+	return map[string]int64{
+		"0.0001": h.counts[0],
+		"0.001":  h.counts[1],
+		"0.01":   h.counts[2],
+		"0.1":    h.counts[3],
+		"0.2":    h.counts[4],
+		"0.4":    h.counts[5],
+		"0.8":    h.counts[6],
+		"+Inf":   h.counts[7],
+	}
+}
