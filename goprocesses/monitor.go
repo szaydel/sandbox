@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"math"
 	"os"
 	"time"
@@ -65,7 +65,8 @@ func startMonitors(
 				processMap.t[p.Role] = struct{}{}
 				if v, ok := processMap.current[p.Role]; ok {
 					if v != p.PID { // This process' PID changed
-						fmt.Println("PID changed, take action, save pid")
+						log.Printf("PID for process %s changed from %d to %d",
+							p.Role, v, p.PID)
 						processMap.current[p.Role] = p.PID
 						p.PIDChaged = true
 						channels.pi[p.Role] <- p
@@ -82,7 +83,7 @@ func startMonitors(
 					go monitor(channels.pi[p.Role],
 						repChan)
 					channels.pi[p.Role] <- p
-					fmt.Printf("Added %s => %d to map\n", p.Role, p.PID)
+					log.Printf("Added %s with PID %d to map\n", p.Role, p.PID)
 				}
 			}
 			for role := range processMap.current {
@@ -124,10 +125,9 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 
 	for {
 		select {
-		case v := <-p:
-			watching = v
+		case watching = <-p:
 			if watching != nil {
-				fmt.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
+				log.Printf("monitoring: %s with PID: %d %p\n", watching.Role, watching.PID, watching)
 				if counter > 0 && watching.PIDChaged {
 					newPIDCounter++
 				}
@@ -144,9 +144,6 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 				lifetimeRate = float64(s.OnCPUTimeTotal()) / float64(watching.ProcAgeAsTicks())
 				samples[counter%window] = lifetimeRate
 
-				times.PrevOnCPUTime = times.CurrentOnCPUTime
-				times.PrevRunTime = times.CurrentRunTime
-
 				// If we don't have any value for previous runtime, this is the
 				// first time we gather stats. In this case we set both current
 				// and previous values to the sample we just collected.
@@ -161,6 +158,8 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 					times.PrevRunTime = watching.ProcAgeAsTicks()
 					times.CurrentRunTime = watching.ProcAgeAsTicks()
 				} else {
+					times.PrevOnCPUTime = times.CurrentOnCPUTime
+					times.PrevRunTime = times.CurrentRunTime
 					times.CurrentOnCPUTime = s.OnCPUTimeTotal()
 					times.CurrentRunTime = watching.ProcAgeAsTicks()
 					histogram.Insert(times.Delta())
@@ -170,14 +169,13 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 				times.Reset()
 			}
 			counter++
-			// fmt.Printf("counter: %d | %+v\n", counter, samples)
 			if counter >= window {
-				// fmt.Printf("DELTA: %f | Avg: %f Latest: %f\n", times.Delta(), avg(samples), lifetimeRate)
 				r <- &IntervalReport{
 					PID:             watching.PID,
 					Role:            watching.Role,
 					InitTimestamp:   initTimestamp,
 					Timestamp:       time.Now(),
+					Age:             watching.ProcAgeAsDuration(),
 					WindowRate:      avg(samples),
 					StandardDev:     stddev(samples),
 					LifetimeRate:    lifetimeRate,

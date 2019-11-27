@@ -20,6 +20,7 @@ type IntervalReport struct {
 	Role            string           `json:"role"`
 	InitTimestamp   time.Time        `json:"init_timestamp"`
 	Timestamp       time.Time        `json:"timestamp"`
+	Age             time.Duration    `json:"age"`
 	WindowRate      float64          `json:"window_rate"`
 	StandardDev     float64          `json:"standard_dev"`
 	LifetimeRate    float64          `json:"lifetime_rate"`
@@ -87,6 +88,7 @@ func (s *Summaries) safeIntervalReport(role string) *IntervalReport {
 		Role:            rep.Role,
 		InitTimestamp:   rep.InitTimestamp,
 		Timestamp:       rep.Timestamp,
+		Age:             rep.Age,
 		WindowRate:      rep.WindowRate,
 		StandardDev:     rep.StandardDev,
 		LifetimeRate:    rep.LifetimeRate,
