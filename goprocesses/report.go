@@ -18,8 +18,8 @@ import (
 type IntervalReport struct {
 	PID             int              `json:"pid"`
 	Role            string           `json:"role"`
-	InitTimestamp   time.Time        `json:"init_timestamp"`
-	Timestamp       time.Time        `json:"timestamp"`
+	InitTimestamp   time.Time        `json:"first_seen"`
+	Timestamp       time.Time        `json:"last_seen"`
 	Age             time.Duration    `json:"age"`
 	WindowRate      float64          `json:"window_rate"`
 	StandardDev     float64          `json:"standard_dev"`

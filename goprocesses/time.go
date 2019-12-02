@@ -14,10 +14,10 @@ import (
 
 func ticksToNsecs(ticks int64) int64 {
 	var hz_per_sec_c C.long
-	var secs int64
+	var nsecs int64
 	hz_per_sec_c = C.sysconf(C._SC_CLK_TCK)
-	secs = (ticks / int64(hz_per_sec_c))
-	return secs * 1e9
+	nsecs = (1e9 * ticks / int64(hz_per_sec_c))
+	return nsecs
 }
 
 func monotonicClockTicks() int64 {

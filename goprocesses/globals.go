@@ -11,17 +11,16 @@ var singleton sync.Once
 // approximation thereof.
 var metricsReport *Summaries
 
-// NewSummaries returns a singleton instance of a Summaries variable, which
-// is used everywhere else.
-func NewSummaries() {
+// NewSummariesSingleton returns a singleton instance of a Summaries global
+// variable, which is used everywhere else.
+func NewSummariesSingleton() bool {
+	var initialized bool
 	singleton.Do(func() {
 		metricsReport = &Summaries{
 			m:   make(map[string]*IntervalReport),
 			mtx: sync.RWMutex{},
 		}
+		initialized = true
 	})
-}
-
-func init() {
-	NewSummaries()
+	return initialized
 }
