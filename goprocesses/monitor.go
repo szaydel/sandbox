@@ -19,24 +19,39 @@ const MaxNotSeenIntervals = 5
 // changes with the processes of interest.
 const ProcRefreshInterval = 4 * time.Second
 
+// MonitoredProcesses is a structure which encapsulates data and associated
+// operations in the startMonitors function. It is assumed to not be thread-safe
+// because there is only ever one instance of this structure around, because
+// there is only ever a single instance of the startMonitors in existence. If
+// this design changes in the future, locking may become necessary to protect
+// concurrent modifications to maps.
 type MonitoredProcesses struct {
 	transient  map[string]struct{}
 	persistent map[string]int
 	notSeen    map[string]int
+	channels   map[string]chan *ProcInfo
 }
 
+// NewTransient creates a new transient map.
 func (mp *MonitoredProcesses) NewTransient() map[string]struct{} {
 	mp.transient = make(map[string]struct{})
 	return mp.transient
 }
 
+// InsertIntoTransient registers a role by making sure a key with role's name
+// is present. This is used for the purposes of comparison between what we
+// believe is current and what is actually current in the process table on the
+// system.
 func (mp *MonitoredProcesses) InsertIntoTransient(role string) {
 	mp.transient[role] = struct{}{}
 }
 
+// RegisterNewProcess creates and initializes all the necessary pieces before
+// we can start a new monitor thread.
 func (mp *MonitoredProcesses) RegisterNewProcess(role string, pid int) {
 	mp.persistent[role] = pid
 	mp.notSeen[role] = 0
+	mp.channels[role] = make(chan *ProcInfo)
 }
 
 func (mp *MonitoredProcesses) pidOf(role string) (int, bool) {
@@ -46,6 +61,9 @@ func (mp *MonitoredProcesses) pidOf(role string) (int, bool) {
 	return -1, false
 }
 
+// PidChanged reports whether or not a PID changed for process being monitored.
+// If a process if not already known an error is returned with false, otherwise
+// nil error and true are returned.
 func (mp *MonitoredProcesses) PidChanged(role string, pid int) (bool, error) {
 	if lastKnownPid, ok := mp.pidOf(role); ok {
 		return pid != lastKnownPid, nil
@@ -53,14 +71,19 @@ func (mp *MonitoredProcesses) PidChanged(role string, pid int) (bool, error) {
 	return false, errors.New("this role not seen previously")
 }
 
+// UpdatePid replaces PID for a given process with another value.
 func (mp *MonitoredProcesses) UpdatePid(role string, pid int) {
 	mp.persistent[role] = pid
 }
 
+// ResetNotSeen resets to zero a counter value tracking number of times
+// a process known to have existed at some point is no longer seen.
 func (mp *MonitoredProcesses) ResetNotSeen(role string) {
 	mp.notSeen[role] = 0
 }
 
+// IncrNotSeen increments by one count of times a process known to have existed
+// at some point, which no longer appears to exist.
 func (mp *MonitoredProcesses) IncrNotSeen(role string) {
 	if _, ok := mp.notSeen[role]; !ok {
 		mp.notSeen[role] = 1
@@ -69,13 +92,25 @@ func (mp *MonitoredProcesses) IncrNotSeen(role string) {
 	mp.notSeen[role]++
 }
 
+func (mp *MonitoredProcesses) closeChannels(role string) {
+	close(mp.channels[role])
+	mp.channels[role] = nil
+}
+
+// RemoveMonitored is effectively a reverse of RegisterNewProcess. It removes
+// structures in memory associated with a process which we no longer want to
+// monitor.
 func (mp *MonitoredProcesses) RemoveMonitored(role string) {
+	mp.closeChannels(role)
+	delete(mp.channels, role)
 	delete(mp.persistent, role)
 	delete(mp.notSeen, role)
-	// We do not do anything about the transient map because it is recreated 
+	// We do not do anything about the transient map because it is recreated
 	// frequently unlike the other two maps.
 }
 
+// NotSeenCount returns count of times a process known to have existed
+// previously was not seen.
 func (mp *MonitoredProcesses) NotSeenCount(role string) int {
 	if count, ok := mp.notSeen[role]; ok {
 		return count
@@ -84,32 +119,43 @@ func (mp *MonitoredProcesses) NotSeenCount(role string) int {
 	return 0
 }
 
+// NotSeen returns the map of processes and their "not seen" counts.
 func (mp *MonitoredProcesses) NotSeen() map[string]int {
 	return mp.notSeen
 }
 
+// NotSeenFewerThan just returns a boolean value resulting from a comparison
+// of number of times not seen and value passed in via the count argument.
 func (mp *MonitoredProcesses) NotSeenFewerThan(role string, count int) bool {
 	return mp.notSeen[role] < count
 }
 
+// Persistent retuns the persistent map of role->PIDs.
 func (mp *MonitoredProcesses) Persistent() map[string]int {
 	return mp.persistent
 }
 
+// Transient retuns the transient map of role->struct{}(s).
 func (mp *MonitoredProcesses) Transient() map[string]struct{} {
 	return mp.transient
 }
 
+// InTransient does a membership check, reporting whether or not a role is
+// present in the transient map.
 func (mp *MonitoredProcesses) InTransient(role string) bool {
 	_, ok := mp.transient[role]
 	return ok
 }
 
+// NewMonitoredProcesses returns an initialized and ready to go structure used
+// by startMonitors function. It is a convenience mechanism mainly to simplify
+// creating all required maps.
 func NewMonitoredProcesses() *MonitoredProcesses {
 	return &MonitoredProcesses{
 		transient:  make(map[string]struct{}),
 		persistent: make(map[string]int),
 		notSeen:    make(map[string]int),
+		channels:   make(map[string]chan *ProcInfo),
 	}
 }
 
@@ -131,22 +177,8 @@ func startMonitors(
 	ctx context.Context,
 	repChan chan *IntervalReport,
 	processes func() []*ProcInfo) {
-	// var processMap = struct {
-	// 	t       map[string]struct{}
-	// 	current map[string]int
-	// 	notSeen map[string]int
-	// }{
-	// 	current: make(map[string]int),
-	// 	notSeen: make(map[string]int),
-	// }
 	var mp = NewMonitoredProcesses()
-	// channels is used for communication with goroutines which we start here
-	// for every process of interest.
-	var channels = struct {
-		pi map[string]chan *ProcInfo
-	}{
-		pi: make(map[string]chan *ProcInfo),
-	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -156,10 +188,8 @@ func startMonitors(
 			// We want to create this map each time through this loop. This map
 			// is expected to be transient and its contents are only good for a
 			// single iteration of this loop.
-			// processMap.t = make(map[string]struct{})
 			mp.NewTransient()
 			for _, p := range processes() {
-				// processMap.t[p.Role] = struct{}{}
 				mp.InsertIntoTransient(p.Role)
 				if changed, err := mp.PidChanged(p.Role, p.PID); err == nil {
 					if changed {
@@ -168,57 +198,44 @@ func startMonitors(
 								p.Role, pid, p.PID)
 						}
 						mp.UpdatePid(p.Role, p.PID)
-						// if v, ok := processMap.current[p.Role]; ok {
-						// if v != p.PID { // This process' PID changed
-						// log.Printf("PID for process %s changed from %d to %d",
-						// p.Role, v, p.PID)
-						// processMap.current[p.Role] = p.PID
 						p.PIDChaged = true
-						channels.pi[p.Role] <- p
+						mp.channels[p.Role] <- p
 					}
 				} else { // This process' Role is not already in the map
+					// Register a new process if this is a process which we have
+					// never seen before and do not already have a monitor
+					// thread for its role. If this is a new process ID for a
+					// previously seen role, we will already have these, and
+					// instead we just update the process ID above.
 					mp.RegisterNewProcess(p.Role, p.PID)
-					// processMap.current[p.Role] = p.PID
-					// processMap.notSeen[p.Role] = 0
-					// Create channels if this is a new process which we have
-					// never seen before and do not already have its role in
-					// the processMap.current map. If this is a new process ID
-					// for a previously seen role, we will already have these,
-					// and instead we just update the process ID above.
-					channels.pi[p.Role] = make(chan *ProcInfo)
-					go monitor(channels.pi[p.Role],
-						repChan)
-					channels.pi[p.Role] <- p
+
+					// Start a new monitor thread for role we have not yet seen,
+					// or have seen before but removed because it was not seen
+					// for a number of intervals.
+					go monitor(mp.channels[p.Role], repChan)
+					mp.channels[p.Role] <- p
 					log.Printf("Added %s with PID %d to map", p.Role, p.PID)
 				}
 			}
-			// for role := range processMap.current {
+
 			for role, pid := range mp.Persistent() {
-				// if _, ok := processMap.t[role]; !ok {
 				if !mp.InTransient(role) {
 					if mp.NotSeenFewerThan(role, MaxNotSeenIntervals) {
 						mp.IncrNotSeen(role)
 						log.Printf("PID %d for process %s no longer seen", pid, role)
 						continue
 					}
-					// if processMap.notSeen[role] < MaxNotSeenIntervals {
-					// 	processMap.notSeen[role]++
-					// 	log.Println("Not seen")
-					// 	continue
-					// }
 					// We need to notify corresponding goroutine that it needs
 					// to shutdown! After telling relevant goroutine to stop,
 					// remove the no longer existing role from the current map.
-					// delete(processMap.current, role)
-
-					// this signals associated goroutine to stop and return,
-					// otherwise we are going to have leaking goroutines.
 					log.Printf("Removing %s from list of monitored processes", role)
-					close(channels.pi[role])
-					channels.pi[role] = nil
-					delete(channels.pi, role)
-					// delete(processMap.notSeen, role)
+					// RemoveMonitored(...) signals associated goroutine to
+					// stop and return, otherwise we are going to have leaking
+					// goroutines.
 					mp.RemoveMonitored(role)
+					// Do not attempt to send on the channel for the process
+					// after calling RemoveMonitored(...) here to prevent a
+					// send on closed channel panic.
 				} else {
 					// If process was not seen for whatever reason and is now
 					// seen again, reset the count to make sure that next time
