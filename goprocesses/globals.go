@@ -2,7 +2,17 @@ package main
 
 import (
 	"sync"
+	"time"
 )
+
+const defaultHostname = "localhost"
+const defaultPort = 8080
+const defaultReportInterval = time.Second * 5
+
+var exeLocation string
+var hostname string
+var port int
+var reportInterval time.Duration
 
 var singleton sync.Once
 

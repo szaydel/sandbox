@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"math"
+	"os"
 	"sync"
 	"time"
 )
@@ -32,10 +35,21 @@ type IntervalReport struct {
 }
 
 func startIntervalReport(c <-chan *IntervalReport) {
+	// on each tick, print out all summaries to stdout
+	tick := time.NewTicker(reportInterval)
 	for {
 		select {
 		case v := <-c:
 			metricsReport.Insert(v)
+		case <-tick.C:
+			if !metricsReport.Empty() {
+				data, err := metricsReport.ToJSON()
+				if err != nil {
+					log.Printf("Failed to produce report with: %v", err)
+					continue
+				}
+				fmt.Fprintln(os.Stdout, string(data))
+			}
 		default:
 			<-time.NewTimer(1 * time.Second).C
 		}
@@ -61,6 +75,13 @@ func (s *Summaries) Len() int {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 	return len(s.m)
+}
+
+// Empty returns true if there are no summaries to report, false otherwise.
+func (s *Summaries) Empty() bool {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return len(s.m) == 0
 }
 
 func (s *Summaries) findRole(role string) *IntervalReport {

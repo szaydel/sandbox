@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,21 +11,8 @@ import (
 	"syscall"
 )
 
-const defaultHostname = "localhost"
-const defaultPort = 8080
-
-var exeLocation string
-var hostname string
-var port int
-
 func main() {
-
-	flag.StringVar(&exeLocation, "exeLocation", "/workspace/sandbox/bin/bro", "Path to executable to be monitored")
-	flag.IntVar(&port, "port", defaultPort, "Listen on this port")
-	flag.StringVar(&hostname, "hostname", defaultHostname, "Address on which to listen")
-
-	flag.Parse()
-
+	setupCliFlags() // Setup and parse command line flags
 	// trap Ctrl+C and call cancel on the context
 	ctx, cancel := context.WithCancel(context.Background())
 	sigChan := make(chan os.Signal, 1)
