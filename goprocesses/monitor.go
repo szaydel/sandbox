@@ -254,16 +254,16 @@ func startMonitors(
 }
 
 func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
-	const window = 10
 	var counter uint64
 	var histogram = NewHist()
 	var initTimestamp = time.Now()
 	var lifetimeRate float64
 	var osPageSize = os.Getpagesize()
 	var newPIDCounter uint64
-	var samples = make([]float64, window)
 	var times CPUTimes
 	var watching *ProcInfo
+	var window = windowSize	
+	var samples = make([]float64, window)
 
 	for {
 		select {

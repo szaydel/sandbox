@@ -9,9 +9,16 @@ const defaultHostname = "localhost"
 const defaultPort = 8080
 const defaultReportInterval = time.Second * 5
 
+// defaultWindowSize is the number of samples for statistical functions like
+// average, standard deviation, etc. The larger the window the smoother the data
+// is going to appear, becasuse extreme observations play a lesser role as the 
+// window size increases.
+const defaultWindowSize = 10
+
 var exeLocation string
 var hostname string
 var port int
+var windowSize uint64
 var reportInterval time.Duration
 
 var singleton sync.Once
