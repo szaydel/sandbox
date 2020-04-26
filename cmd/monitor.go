@@ -262,7 +262,7 @@ func monitor(p <-chan *ProcInfo, r chan<- *IntervalReport) {
 	var newPIDCounter uint64
 	var times CPUTimes
 	var watching *ProcInfo
-	var window = windowSize	
+	var window = windowSize
 	var samples = make([]float64, window)
 
 	for {

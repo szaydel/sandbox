@@ -4,21 +4,28 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 )
 
 func Test_startIntervalReport(t *testing.T) {
 	type args struct {
-		c <-chan *IntervalReport
+		c chan *IntervalReport
 	}
 	tests := []struct {
 		name string
 		args args
 	}{
 		// TODO: Add test cases.
+		{name: "A", args: args{c: make(chan *IntervalReport)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			startIntervalReport(tt.args.c)
+			reportInterval = 1 * time.Second
+			NewSummariesSingleton()
+			// TODO: Read stdout and make sure we get data we expect
+			go startIntervalReport(tt.args.c)
+			tt.args.c <- &IntervalReport{}
+			tt.args.c <- nil
 		})
 	}
 }

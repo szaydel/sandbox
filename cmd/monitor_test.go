@@ -25,7 +25,7 @@ func Test_startMonitors(t *testing.T) {
 	}
 }
 
-// Test_monitor test needs more than 5 seconds to run, therefore, set timeout 
+// Test_monitor test needs more than 5 seconds to run, therefore, set timeout
 // to at least 10 seconds. Otherwise, expect to see something like:
 // panic: test timed out after 5s
 func Test_monitor(t *testing.T) {
@@ -35,7 +35,7 @@ func Test_monitor(t *testing.T) {
 	pi := findProcsByName(os.Args[0])[0]
 	go monitor(p, r)
 	p <- pi
-	
+
 	// Expect to get two interval reports before closing the *ProcInfo channel.
 	t.Logf("%+v\n", <-r)
 	t.Logf("%+v\n", <-r)

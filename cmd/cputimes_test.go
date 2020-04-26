@@ -55,48 +55,48 @@ func TestCPUTimes_Reset(t *testing.T) {
 	tests := []struct {
 		name   string
 		fields fields
-		want *CPUTimes
+		want   *CPUTimes
 	}{
 		{
 			name: "All fields must be reset to zeros",
 			fields: fields{
-				PrevRunTime: 1234,
-				CurrentRunTime: 1234,
-				PrevOnCPUTime: 1234,
+				PrevRunTime:      1234,
+				CurrentRunTime:   1234,
+				PrevOnCPUTime:    1234,
 				CurrentOnCPUTime: 1234,
 			},
 			want: &CPUTimes{
-				PrevRunTime: 0,
-				CurrentRunTime: 0,
-				PrevOnCPUTime: 0,
+				PrevRunTime:      0,
+				CurrentRunTime:   0,
+				PrevOnCPUTime:    0,
 				CurrentOnCPUTime: 0,
 			},
-		},{
+		}, {
 			name: "All fields must be reset to zeros",
 			fields: fields{
-				PrevRunTime: -1234,
-				CurrentRunTime: -1234,
-				PrevOnCPUTime: -1234,
+				PrevRunTime:      -1234,
+				CurrentRunTime:   -1234,
+				PrevOnCPUTime:    -1234,
 				CurrentOnCPUTime: -1234,
 			},
 			want: &CPUTimes{
-				PrevRunTime: 0,
-				CurrentRunTime: 0,
-				PrevOnCPUTime: 0,
+				PrevRunTime:      0,
+				CurrentRunTime:   0,
+				PrevOnCPUTime:    0,
 				CurrentOnCPUTime: 0,
 			},
-		},{
+		}, {
 			name: "All fields must be reset to zeros",
 			fields: fields{
-				PrevRunTime: 0,
-				CurrentRunTime: 0,
-				PrevOnCPUTime: 0,
+				PrevRunTime:      0,
+				CurrentRunTime:   0,
+				PrevOnCPUTime:    0,
 				CurrentOnCPUTime: 0,
 			},
 			want: &CPUTimes{
-				PrevRunTime: 0,
-				CurrentRunTime: 0,
-				PrevOnCPUTime: 0,
+				PrevRunTime:      0,
+				CurrentRunTime:   0,
+				PrevOnCPUTime:    0,
 				CurrentOnCPUTime: 0,
 			},
 		},

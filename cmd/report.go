@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -34,12 +35,26 @@ type IntervalReport struct {
 	RateHistogram   map[string]int64 `json:"rate_histogram"`
 }
 
+func (i IntervalReport) String() string {
+
+	role := i.Role
+	pid := fmt.Sprintf("bro_pid{role=\"%s\"} %d", role, i.PID)
+	first_seen := fmt.Sprintf("bro_process_start_seconds{role=\"%s\"} %d", role, i.Timestamp.Unix() )
+	age := fmt.Sprintf("bro_process_age_seconds{role=\"%s\"} %d", role, int(i.Age.Seconds()))
+	vmem := fmt.Sprintf("bro_virtual_memory_bytes{role=\"%s\"} %d", role, i.VirtMemoryBytes)
+
+	return pid + "\n" + first_seen + "\n" + age + "\n" + vmem + "\n"
+}
+
 func startIntervalReport(c <-chan *IntervalReport) {
 	// on each tick, print out all summaries to stdout
 	tick := time.NewTicker(reportInterval)
 	for {
 		select {
 		case v := <-c:
+			if v == nil {
+				return
+			}
 			metricsReport.Insert(v)
 		case <-tick.C:
 			if !metricsReport.Empty() {
@@ -160,4 +175,23 @@ func (s *Summaries) ToJSON() ([]byte, error) {
 		l = append(l, s.safeIntervalReport(role))
 	}
 	return json.Marshal(l)
+}
+
+// ToJSON returns serialized version of the interval summaries map.
+// Multiple concurrent readers are possible, but only one writer is allowed.
+func (s *Summaries) All() ([]*IntervalReport, error) {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	if s.Len() == 0 {
+		return nil, errors.New("zero summaries currently available")
+	}
+	l := make([]*IntervalReport, s.Len())
+	var c = 0
+	for role := range s.m {
+		// l = append(l, s.safeIntervalReport(role))
+		l[c] = s.safeIntervalReport(role)
+		fmt.Printf("role => %v\n", role)
+		c++
+	}
+	return l, nil
 }
